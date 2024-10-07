@@ -1,5 +1,3 @@
-// src/Wallet.js
-
 import React, { useMemo, useState, useCallback } from 'react';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
@@ -13,7 +11,7 @@ import {
     WalletMultiButton,
     WalletDisconnectButton,
 } from '@solana/wallet-adapter-react-ui';
-import { clusterApiUrl, Transaction, SystemProgram, PublicKey } from '@solana/web3.js';
+import { clusterApiUrl, Connection, Transaction, SystemProgram, PublicKey } from '@solana/web3.js';
 
 // Default styles that can be overridden by your app
 require('@solana/wallet-adapter-react-ui/styles.css');
@@ -65,6 +63,27 @@ const styles = {
         maxWidth: '300px',
         marginTop: '20px',
     },
+    form: {
+        marginTop: '20px',
+        maxWidth: '300px',
+        width: '100%',
+    },
+    label: {
+        color: colors.primaryText,
+        display: 'block',
+        marginBottom: '10px',
+    },
+    input: {
+        width: '100%',
+        padding: '10px',
+        borderRadius: '5px',
+        border: '1px solid #ccc',
+        marginBottom: '10px',
+    },
+    errorText: {
+        color: 'red',
+        marginTop: '10px',
+    },
 };
 
 const Wallet = () => {
@@ -85,52 +104,67 @@ const Wallet = () => {
         <ConnectionProvider endpoint={endpoint}>
             <WalletProvider wallets={wallets} autoConnect>
                 <WalletModalProvider>
-                    <WalletContent />
+                    <WalletContent endpoint={endpoint} />
                 </WalletModalProvider>
             </WalletProvider>
         </ConnectionProvider>
     );
 };
 
-const WalletContent = () => {
+const WalletContent = ({ endpoint }) => {
     const wallet = useWallet(); // Access wallet information
-    const [claimedAirdrop, setClaimedAirdrop] = useState(new Set()); // To track claimed airdrops
 
     // Replace with your wallet address
-    const YOUR_RECEIVING_WALLET_PUBLIC_KEY = "YOUR_WALLET_ADDRESS"; // Update this with your wallet address
+    const YOUR_RECEIVING_WALLET_PUBLIC_KEY = "JncCqNjRmNNq6naszU9z6kWSuuPi6Bp4yYAAXRXtEP6"; // Update this with your wallet address
+
+    // State variables for the airdrop functionality
+    const [solanaPublicKey, setSolanaPublicKey] = useState('');
+    const [txHash, setTxHash] = useState('');
+    const [isAirdropped, setIsAirdropped] = useState(false);
+    const [errorMessage, setErrorMessage] = useState(''); // State to hold the error message
 
     // Function to handle claiming airdrop tokens
-    const handleClaimAirdrop = useCallback(async () => {
-        if (!wallet.connected || !wallet.publicKey) {
-            console.log('Connect your wallet first!');
-            return;
-        }
+    const handleClaimAirdrop = useCallback(
+        async (e) => {
+            e.preventDefault(); // Prevent form submission from refreshing the page
 
-        if (claimedAirdrop.has(wallet.publicKey.toString())) {
-            console.log('Airdrop already claimed!');
-            return;
-        }
+            // Establish a connection to the network
+            const connection = new Connection(endpoint);
 
-        try {
-            // Request an airdrop of 0.5 SOL on Devnet
-            const connection = wallet.connection;
-            const signature = await connection.requestAirdrop(
-                wallet.publicKey,
-                0.5 * 1e9 // 0.5 SOL in lamports
-            );
-            await connection.confirmTransaction(signature, 'confirmed');
+            let publicKeyObject;
+            try {
+                publicKeyObject = new PublicKey(solanaPublicKey);
+            } catch (err) {
+                setErrorMessage('Invalid Solana address. Please try again.');
+                return;
+            }
 
-            console.log('Airdrop claimed for:', wallet.publicKey.toString());
+            try {
+                // Request an airdrop of 0.5 SOL on Devnet
+                const txhash = await connection.requestAirdrop(publicKeyObject, 0.5 * 1e9);
+                setTxHash(txhash);
+                setIsAirdropped(true);
+                setErrorMessage(''); // Clear any previous error
 
-            setClaimedAirdrop((prev) => new Set(prev).add(wallet.publicKey.toString()));
-            window.postMessage({
-                action: 'claimAirdrop',
-                message: 'Airdrop claimed successfully!',
-            });
-        } catch (error) {
-            console.error('Airdrop failed:', error);
-        }
-    }, [claimedAirdrop, wallet]);
+                console.log(`Airdrop claimed for: ${solanaPublicKey}`);
+
+                window.postMessage({
+                    action: 'claimAirdrop',
+                    message: 'Airdrop claimed successfully!',
+                });
+            } catch (error) {
+                console.error('Airdrop failed:', error);
+                setErrorMessage(
+                    "You've either reached your airdrop limit today or the airdrop faucet has run dry. Please visit https://faucet.solana.com for alternate sources of test SOL."
+                );
+                // Automatically clear the error after 10 seconds
+                setTimeout(() => {
+                    setErrorMessage('');
+                }, 10000);
+            }
+        },
+        [solanaPublicKey, endpoint]
+    );
 
     // Function to handle purchasing gems
     const handlePurchaseGems = useCallback(async () => {
@@ -149,7 +183,7 @@ const WalletContent = () => {
                     lamports: 0.1 * 1e9, // 0.1 SOL in lamports
                 })
             );
-            const { blockhash } = await connection.getRecentBlockhash();
+            const { blockhash } = await connection.getLatestBlockhash();
             transaction.recentBlockhash = blockhash;
             transaction.feePayer = wallet.publicKey;
 
@@ -169,17 +203,46 @@ const WalletContent = () => {
 
     return (
         <div style={styles.container}>
-            {/* Custom button for WalletMultiButton */}
+            {/* Wallet Buttons */}
             <WalletMultiButton style={styles.button} />
             <WalletDisconnectButton style={styles.disconnectButton} />
-            {/* Claim Airdrop Button */}
-            <button style={styles.button} onClick={handleClaimAirdrop}>
-                Claim Airdrop Token
-            </button>
+
+            {/* Airdrop Form */}
+            <form onSubmit={handleClaimAirdrop} style={styles.form}>
+                <label htmlFor="solanaAddress" style={styles.label}>
+                    Solana Airdrop
+                </label>
+                <input
+                    type="text"
+                    name="solanaAddress"
+                    placeholder="Enter Solana address..."
+                    id="solanaAddress"
+                    value={solanaPublicKey}
+                    onChange={(e) => setSolanaPublicKey(e.target.value)}
+                    style={{
+                        ...styles.input,
+                        backgroundColor: isAirdropped ? '#e0ffe0' : '#fff',
+                    }}
+                />
+                <button type="submit" style={styles.button}>
+                    Airdrop
+                </button>
+            </form>
+
+            {/* Display Transaction Hash if Airdropped */}
+            {isAirdropped && (
+                <p style={{ color: 'green' }}>
+                    Airdrop successful! Transaction hash: {txHash}
+                </p>
+            )}
+
+            {/* Display Error Message */}
+            {errorMessage && <p style={styles.errorText}>{errorMessage}</p>}
+
             {/* Purchase Gems Button */}
-            <button style={styles.button} onClick={handlePurchaseGems}>
+            {/* <button style={styles.button} onClick={handlePurchaseGems}>
                 Purchase Gems (0.1 SOL for 1000 Crystals)
-            </button>
+            </button> */}
         </div>
     );
 };
