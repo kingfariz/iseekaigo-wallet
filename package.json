@@ -2,6 +2,7 @@
   "name": "solana-wallet-app",
   "version": "0.1.0",
   "private": true,
+  "homepage": "/solana-wallet-app/",
   "dependencies": {
     "@solana/wallet-adapter-base": "^0.9.23",
     "@solana/wallet-adapter-react": "^0.15.35",
